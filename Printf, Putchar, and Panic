@@ -12,6 +12,7 @@ printn(n, b)
   if(a = ldiv(n, b))
     printn(a, b);
   putchar(lrem(n, b) + '0')
+}
 ```
 
 The procedure prints a number ```n``` in base ```b```. It does this for any unsigned integer number in any base (the base presumably being >= 2). 
