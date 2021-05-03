@@ -1,0 +1,173 @@
+This section corresponds with 5.6 - 5.10 in the UNIX 6th Edition Commentary. 5.11 and 5.12 are not extremely relevant, so I do not plan to
+comment on them. The commands covered in this section are printf(), putchar(), and panic().
+
+Before going on -- I think it's important to note that there is a procedure in this section that I find very beautiful. I'm just going to 
+show it here, since I think it speaks for itself.
+
+```c
+printn(n, b)
+{
+  register a;
+  
+  if(a = ldiv(n, b))
+    printn(a, b);
+  putchar(lrem(n, b) + '0')
+```
+
+The procedure prints a number ```n``` in base ```b```. It does this for any unsigned integer number in any base (the base presumably being >= 2). 
+The algorithm used here is so simple, and the return is amazing -- in less than 10 lines you can write a legible function that can take
+any unsigned integer, any valid base, and display it in any form (at least in theory; in reality, this depends on putchar(lrem(n, b) + '0') looking up
+alphabetic characters after numeric ones to get bases > 10 correctly, but still). 
+I was so inspired by this that I used it in a couple of examples -- one of which just implements this procedure in python (printn.py), and one that
+uses this procedure to convert Excel column letters to numbers (col_converter.py; a sadder example, but one which is often relevevant in my line of work).
+
+The printf() procedure in the UNIX 6th edition is not the same as the printf() from C's standard library, but it is pretty close. The function
+declaration looks very troublesome, but only the ```fmt``` and ```x1``` arguments are used. 
+
+```c
+printf(fmt, x1, x2, x3, x4, x5, x6, x7, x8, x9, xa, xb, xc)
+char fmt[];
+{
+  register char *s;
+  register *adx c;
+  
+  adx = &x1;
+loop:
+  while((c = *fmt++) != '%') {
+    if(c == '\0')
+      return
+    putchar(c);
+  }
+  c = *fmt++;
+  if(c == 'd' || c == 'l' || c == 'o')
+    printn(*adx, c=='o'? 8: 10);
+  if(c == 's') {
+    s = *adx;
+    while(c = *s++)
+      putchar(c);
+  }
+  adx++;
+  goto loop;
+}
+
+The printf procedure starts by declaring three register variables - a character pointer, ```s```, and two integers (```adx``` and ```c```, of which ```adx```
+is a pointer). 
+
+The procedure starts by storing the address of the first argument, x1, in ```adx```. Note that, in this procedure, ```adx``` is used to accumulate arguments
+that were passed to printf. The stack grows down, so:
+
+  &fmt < &x1 < &x2 < &x3 < ...
+  
+Once we store the first real argument, x1, into ```adx```, we can subsequently loop through the remaining arguments by incrementing adx (```adx++```) while
+there are still formats to collect. You'll see this later on.
+
+After x1's address has been stored in ```adx```, the code enters a loop, which is guided by the ```loop``` label. The procedure begins by looping through the format
+string ```fmt```, looking for '%' characters. If none is found, the procedure either exits (if the character is the null character) or putchar's the character to the 
+output device. We'll see putchar's implementation later.
+
+Otherwise, if a '%' formatting character is found, the procedure advances the ```fmt``` pointer to get the formatting character (valid choices are 'd', 'l', 'o', and 's' 
+in the 6th edition; a far cry from the choices we have today). If the format character is 'd', 'l', or 'o', printf() passes the numeric printing responsibility to printn().
+You can see the implementation of printn() above; it's an incredible little procedure, at least in my opinion.
+Otherwise, it prints the character indicated by the current argument (recall that this is pointed to by *adx), Finally, printf() loops back to the ```loop``` label, ready
+to continue processing the format string. 
+
+Putchar() is a little more difficult to understand, mostly because it involves interacting with the hardware underlying the PDP11 that UNIX version 6 was created for. 
+The implementation of putchar is below.
+
+```c
+putchar(c)
+{
+  register rc, s;
+  
+  rc = c;
+  if(SW->integ == 0)
+    return;
+  while((KL->xsr&0200) == 0)
+    ;
+  if(rc == 0)
+    return;
+  s = KL->xsr;
+  KL->xsr = 0;
+  KL->xbr = rc;
+  if(rc == '\n') {
+    putchar('\r')
+    putchar(0177);
+    putchar(0177);
+  }
+  putchar(0);
+  KL->xsr = s;
+}
+```
+
+The SW variable is a global which is defined as the value "0177570". According to the UNIX 6th Edition Commentary, this is the kernel address of a ready only processor
+register which stores the setting of the console switch register. In the context of putchar(), all this means is that we need to check to see if the contents at 
+register "0177570" are zero, which we can do with ```(SW->integ == 0)```. However, this is more easily said than done.
+
+While this seems straightforward, the problem is that ```SW``` is really a pointer value which we need to deference. Ritchie and Thompson solve this in an ingenious way -- 
+by creating a dummy anonymous struct (shown below) that, at least with the compiler they were using, can be deferenced with no problems.
+
+```c
+struct {
+  int integ;
+};
+```
+
+If the value at this register is zero the procedure returns. Otherwise, the procedure waits until bit 7 of the "transmitter status register" ```xsr``` turns on,
+which indicates that the interface is ready to accept another character. Once the interface is ready, putchar() performs a bunch of funky accesses 
+on a variable ```KL```. This deserves a bit of an explanation.
+
+KL is a global variable defined as "0177560", very similar to the definition of SW shown above. In actuallity, "0177560" is the starting address of the first of four 
+16-bit registers that the PDP11 uses as part of the "system console terminal interface". The UNIX 6th Edition Commentary has more information on this; if you're really
+interested, you can refer to Chapter 24 of the "PDP11 Peripheral Handbook" as well.
+
+With KL, we run into the same problem that we ran into looking at SW; we have an address, but we really need to deference the address to pull in register values 
+appropriately. Ritchie and Thompson solve this with another anonymous struct.
+
+```c
+struct {
+  int rsr;
+  int rbr;
+  int xsr;
+  int xbr;
+}
+```
+
+They then use this struct to access the rsr, rbr, xsr, and xbr registers appropriately. First, they save the bits in the ```xsr``` register, then set it to zero.
+They then set the ```xbr``` register to ```rc```. This is where the software/hardware interaction magic happens; ```rc``` contains the bits of the character ```c```, 
+which have been passed into the ```xbr``` register to be communicated to the hardware. Once ```rc``` is written to the ```xbr``` character, the procedure writes
+extra lines if needed (in this case, that involves writing a carriage return '\r' after the newline, followed by a couple of extra delete (0177) characters to allow
+for any delays). 
+
+Finally, a recursive call is made putchar() with a character of 0. This just serves to check SW again, and potentially wait on the ```xsr``` register to indicate that
+the interface is ready to accept another character. This achives its purpose, but in poor style. Once this call resolves, the ```xsr``` is reset to the value it had
+before putchar was called.
+
+Panic is the last function we need to cover, and it is (mercifully) short:
+
+```c
+panic(s)
+char *s;
+{
+  panicstr = s;
+  update();
+  printf("panic: %s\n", s);
+  for(;;)
+    idle();
+}
+```
+
+Panic() is called on fatal errors. All it does is sync (via ```update()```), printf()'s that it is panicking, and idles. Why this structure? The panic() procedure 
+appears to be intentionally vauge, serving mainly to handle fatal errors by idling. This allows other program actions to resolve, and also allows the programmer to 
+perform a core dump before restarting the system. The UNIX 6th Edition Commentary explains this better than I can:
+  
+  "UNIX does not profess to be a "fault tolerant" or "fail soft" system, and in many cases the call on "panic" can be interperted as a fairly 
+   unsophisticated resposne to a straightforward problem.
+   However, more complicated responses require additional code, lots of it, and this is contrary to the general UNIX philosophy of "keep it simple"."
+   
+Printf() and putchar() are definitely more interesting than I thought they would be. Some of the code would never fly today (for instance, the recursive 
+call to putchar() to do some cleanup, and potentially the anonymous structs that allow for hacky variable access, although those might be neccessary for some
+hardware). However, there are definitely some gems among these procedures, like printn(). I also really like that the UNIX 6th Edition Commentary uses printf() 
+as an introduction to the stack. In the context of an operating system, the stack seems like a good thing to introduce early, and introducing it via
+stack abuse to get arguments to printf() is a lot of fun. It's worth checking to see if printf() works in a similar way now -- it's very likely that large
+chunks of it have changed, but I'd imagine that the core functionality must remain the same given that it uses variable arguments. Overall, the printer functions
+are surprisingly interesting, and serve as a nice introduction to the otherwise very intimidating PDP11 hardware/peripheral devices.
