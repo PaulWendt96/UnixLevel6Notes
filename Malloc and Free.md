@@ -54,6 +54,12 @@ struct map *mp;
 Now for mfree()
 
 ```c
+/* Lines 2550 - 2588
+ * Free the previously allocated space aa
+ * of size units into the specified map.
+ * Sort aa into map and combine on 
+ * one or both ends if possible.
+ */
 mfree(mp, size, aa)
 struct map *mp;
 {
