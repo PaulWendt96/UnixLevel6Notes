@@ -1,71 +1,18 @@
-The source code for malloc() and mfree() are both surprisingly compact. Both are under 30 lines. Let's look at malloc() first.
+The Unix v6 source code for malloc() and mfree() is surprisingly compact. Both procedures manipulate map structures in order to
+keep track of free and allocated memory.
 
 ```c
-malloc(mp, size)
-struct map *mp;
-{
-  register int a;
-  register struct map *bp;
-  
-  for (bp = mp; bp->m_size; bp++) {
-    if (bp->m_size >= size) {
-      a = bp->m_addr;
-      bp->m_addr =+ size;
-      if ((bp->m_size =- size) == 0)
-        do {
-            bp++;
-            (bp-1)->m_addr = bp->m_addr;
-        } while((bp-1)->m_size = bp->m_size);
-      return(a);
-    }
-  }
-  return(0);
-}
-```
-
-Malloc is a memory allocation procedure. It searches an array of map structs (which I'll often refer to as
-the "memory list") until one of two conditions is met:
-
-  1. There are no more memory resources available. This occurs if no block of contigious free memory is 
-  large enough to hold the requested amount of bytes. If this is the case, malloc() returns 0 to indicate that
-  a suitable block of memory was not found.
-  
-  2. A suitable block of memory is found. If a suitable block of memory is found, the following steps occur:
-    a. The address of the block is saved
-    b. The block which previously contained the now-allocated block of memory has its address incremented
-       to account for the allocation
-    c. The block which previously contained the now-allocated block of memory has its size decremented 
-       by the size of the allocated block. This looks a little weird since it occurs in the body of an ```if``` statement
-       -- read part (d) to see why that is the case
-    d. The if statement tests to see if the block size is currently zero. If it is, that means 
-       the block that we just allocated was a "perfect fit" for the amount of data we requested. While
-       this is good from a memory perspective, we need to remove the block from the free list as a result,
-       which is what the remainder of the procedure does.
-
-Let's take a more detailed look. Note that the UNIX 6th Edition Commentary covers a lot of this information
-already; check there for additional information (and a lot more background than I'm giving).
-
-Malloc starts by declaring two variables: an integer ```a``` and a pointer to a map struct, ```bp```. 
-The register keyword is used to tell the compiler that this variable might be a good one to put in a 
-register (note that this is not guaranteed; using ```register``` is a suggestion to the compiler that
-the variable should be put in a register, but not a demand). As a slight tangent, there are a number of 
-declarations in the Unix Version 6 source code similar to ```register a```, with seemingly no type. This 
-isn't an error -- register variables default to integers, so the ```register a``` declaration is equivalent to
-```register int a```. The latter style of declaration is advised since it is more clear; the former will 
-cause modern versions of gcc to yell at you.
-
-One very important detail to understand is that UNIX uses an array of map structs to keep track of free memory
-blocks. To indicate the end of this array, the writers use a sentinel map struct with a size of zero. This is
-conceptually similar to the character string null character, '\0'. This structure allows the authors (Dennis Ritchie and
-Ken Thompson) to write the for loop as ```for (bp = mp; bp->m_size; bp++)```, in which ```bp->m_size``` will cause the 
-for-loop to exit if the sentinel is reached.
-
-Once the relevant variables are declared, malloc beings to loop through ```mp```, using ```bp``` as an index
-variable. ```mp``` is an array of map structs representing blocks of free memory. The underlying map struct consists of just two character pointers.
-The first character pointer, ```m_size```, indicates the size of an available block of memory. The second
-character pointer, ```m_addr```, indicates the address. 
-
-```c
+/* Lines 2504 - 2520
+ * Structure of the coremap and swapmap
+ * arrays. Consists of non-zero count
+ * and base address of that many
+ * contiguous units.
+ * (The coremap unit is 64 bytes, 
+ * the swapmap unit is 512 bytes)
+ * The addresses are increasing and 
+ * the list is terminated with the 
+ * first zero count
+ */
 struct map
 {
   char *m_size;
@@ -73,21 +20,38 @@ struct map
 }
 ```
 
-The for loop, ```for (bp = mp; bp->m_size; bp++)``` serves to iterate over every element in the map array, checking the size of available memory in each
-map struct found. If the size of the available memory is greater than the amount requested (```if (bp->m_size >= size)```), then a block of memory has been
-found. If this is the case, the address of the memory block will be saved (```a = bp->m_addr```). Then, the address of the remaining block will be incremented
-(```bp->m_addr =+ size```), and the size of the remaining block decremented (```bp->m_size =- size```). 
+Let's look at malloc() first.
 
-Note that the size decrement occurs in an if statement, ```if ((bp->m_size =- size) == 0)```. This is no coincidence. The if statement determines
-whether or not the remaining block has any memory left. If this condition succeeds (e.g. if the block has a size of zero), every susbsequent
-element in the memory list is moved down one 'slot'. This occurs in an unintuitive way. The do loop starts by incrementing the block pointer ```bp```
-by one, moving on to the next block in the list. Then, it uses ```(bp-1)->m_addr = bp->m_addr``` to change the address of the prior map to point to the 
-address of the current map. It modifies size in the condition loop, ```while((bp-1)->m_size = bp->m_size)```. The reason for this unintuitive approach
-is because the memory list is terminated by the sentinel map struct, with a size of 0. This is how malloc determines whether or not it has reached the
-end of the memory list. Once this condition becomes True, malloc knows that it has reached the end of the memory list. Because it has already modified all of the map
-structs accordingly, it can terminate. 
+```c
+/* Lines 2522 - 2548
+ * Allocate size units from the given
+ * map. Return the base of the allocated
+ * space.
+ * Algorithm is first fit.
+ */
+malloc(mp, size)
+struct map *mp;
+{
+  register int a;
+  register struct map *bp;
+  
+  for (bp = mp; bp->m_size; bp++) {     /* while there are free blocks on the map... */
+    if (bp->m_size >= size) {           /* if the free block has a size > our requested size... */
+      a = bp->m_addr;                   /* save the memory address of the free block as 'a' */
+      bp->m_addr =+ size;               /* increment the memory address by 'size' units */
+      if ((bp->m_size =- size) == 0)    /* remove the block from the free list (and push subsequent blocks down) if size went to 0 */
+        do {
+            bp++;
+            (bp-1)->m_addr = bp->m_addr;
+        } while((bp-1)->m_size = bp->m_size);
+      return(a);                         /* return the found block */
+    }
+  }
+  return(0);                             /* didn't find a free block of m_size >= size; return 0 */
+}
+```
 
-mfree(), like malloc(), packs a big punch in a few compact lines of code. 
+Now for mfree()
 
 ```c
 mfree(mp, size, aa)
@@ -98,22 +62,22 @@ struct map *mp;
   register int a;
   
   a = aa;
-  for (bp = mp; bp->m_addr<=a && bp->m_size!=0; bp++);
-  if (bp>mp && (bp-1)->m_addr+(bp-1)->m_size == a) {
-    (bp-1)->m_size =+ size;
-    if (a+size == bp-<m_addr) {
-      (bp-1)->m_size =+ bp->m_size;
+  for (bp = mp; bp->m_addr<=a && bp->m_size!=0; bp++);  /* find the first block with nonzero m_size and m_addr > a */
+  if (bp>mp && (bp-1)->m_addr+(bp-1)->m_size == a) {    /* if bp isn't the first block and the prior block can be coallesced... */
+    (bp-1)->m_size =+ size;                             /* coallesce the prior block with the block we are freeing */
+    if (a+size == bp-<m_addr) {                         /* if the newly coallesced block is "up against" the current block... */
+      (bp-1)->m_size =+ bp->m_size;                     /* coallesce that block too and adjust the free map accordingly */
       while (bp->m_size) {
         bp++;
         (bp-1)->m_addr = bp->m_addr;
         (bp-1)->m_size = bp->m_size;
       }
     }
-  } else {
-    if (a+size == bp->m_addr && bp->m_size) {
-      bp->m_addr -= size;
+  } else {                                              /* can't coallesce the prior block, but... */
+    if (a+size == bp->m_addr && bp->m_size) {           /* maybe we can coallesce the current block? */
+      bp->m_addr -= size;                               /* yes, we can coallesce! adjust m_addr and m_size and we're done */
       bp->m_size =+ size;
-    } else if(size) do {
+    } else if(size) do {                                /* nope, we can't coallesce anything. add a free block to the list and adjust the free map accordingly */
       t = bp->m_addr;
       bp->m_addr = a;
       a = t;
@@ -124,50 +88,3 @@ struct map *mp;
   }
 }
 ```
-
-There's a lot to unpack here. The basic structure of the code is as follows:
-  1. First, loop over the existing memory list until we find a block of memory with an address greater than the block
-     we are looking to free (note that, in this case, the address of the block that we are freeing is indicated by
-     parameters ```aa``` in mfree()'s declaration). 
-  2. Once we have found this block, find the block directly to the left of it (bp-1) to see if that block's address plus
-     the size of the freed block is equivalent to the current block ```bp```'s address.
-       a. If it is, that means that we can coalesce the prior block and the free block together, and might actually be able 
-          to combine the block on both ends (although this is not guaranteed)! The procedure does that and returns.
-       b. If not, we may still be able to coalesce the freed block with the current block indicated by bp. 
-          The else statement is concerned with performing this one-sided coalesce. If it cannot coalesce, anything,
-          it will shift the memory map structs appropriately.
-          
-Let's take a more granular look.
-
-The first couple of lines declare three register variables. Two of these, ```t``` and ```a```, are integers. ```a``` ends up
-holding the address of the block that we are going to free; ```t``` will be used to help us coalesce the blocks together.
-```bp``` is declared as a pointer to a map struture, and is exactly the same delcaration as we say in malloc().
-
-The for loop in mfree() is doing a lot of work. ```for (bp = mp; bp-<m_addr<=a && bp->m_size!=0; bp++)``` loops through the 
-memory list, looking for the first block with an ```m_addr``` field greater than the address of our free block. Once mfree()
-finds this block, it remembers it as ```bp```.
-
-The test, ```if (bp>mp && (bp-1)->m_addr+(bp-1)->m_size == a)```, checks to see if the block that the ```for``` statement found
-is the first one in the list. If it is not, the conditional checks to see if adding the prior block (```(bp-1)```) address with the 
-prior block size yields the free block (```a```) address.
-
-If both of the conditions above hold, the prior and free blocks can be coalesced together. We begin that process by
-increasing the size of the prior block, ```(bp-1)->m_size =+ size)```. We then test to see if we can coalesce the 
-free and current blocks together by testing ```if (a+size == bp->m_addr)```. If this is not the case, we can safely return.
-However, if this is the case, we can actually have the prior block absorb the current block. We do this by increasing
-the prior block's size again (```(bp-1)->m_size =+ bp->m_size```) and shifting all the remaining elements from
-(```bp+1```) on down one slot to the left. We don't need to do anything explicitly with ```bp``` itself; it is retained
-in the memory list, but with it's m_size and m_addr fields overwritten to point to free blocks that are further on in the 
-memory list. 
-
-Circling way back, now let's look at the case if ```if (bp>mp && (bp-1)->m_addr+(bp-1)->m_size == a)``` fails. If that happens, we are
-either looking at the first block in the memory list, or the ```bp``` that we found does not have a ```(bp-1)``` that we can
-coalesce with. This excludes the possibility of a backward coalesce, but does mean that we can potentially coalesce the free block and
-```bp```. We see if this can be done with ```if (a+size == bp->m_addr && bp->m_size)```. If this coalescing can be done, 
-we modify ```bp```'s addr and size fields appropriately and can consider ourselves done. Otherwise, we shift all of the map elements to 
-the right to make room for the additional free block we are adding to the memory list (the ```while (size = t)``` conditional ensures
-that we only do this until the sentinel is reached, at which point we stop).
-
-The code style of UNIX Version 6 is a little foreign, but definetely worth serious study. Lots of students would have trouble fitting into
-300 lines what Ritchie and Thompson fit into 30. The code isn't always perfect, but is very legible, especially using the UNIX 6th Edition Commentary
-as a reference. 
