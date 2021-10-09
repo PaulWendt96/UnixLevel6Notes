@@ -1,4 +1,4 @@
-How does Unixv6 start?
+<title>How does Unixv6 start?</title>
 
 Unix v6 starts at line 0612 in the source. At this point in time, the machine (presumably a PDP 11/40 or something similar) has nothing initialized. The goal of the Unixv6 start
 sequence is to initialize a couple of things:
@@ -26,7 +26,119 @@ As mentioned above, the machine actually keeps two sets of segmentation register
 machine is in user mode, and another for one the machine is in kernel mode. The mode of the machine
 is determined by a register called the Processor Status Word (PS) - but more on that later.
 
-<img src=segmentation_regs.PNG alt=Segmentation Registers>
+<img src=images/segmentation_regs.PNG alt=Segmentation Registers>
 
 Setting the segmentation registers up appropriately will help ensure a clean split between user space
 and kernel space. This setup is also relevant once we start delving into process memory.
+
+<h1> Process #0 </h1>
+
+Process #0 (colloquially named "The First Process") is the first process that the computer sees on 
+startup. Being the first process, Process #0 requires special setup. Unix v6 starts performing this
+setup on line 0646, although it takes a while for this setup to complete. 
+
+To understand Unix, it is important to understand the ingredients of a process. In abstract terms, a 
+process is a model of a computer in execution. See <a href=pdfs/lions.pdf>Lion's Chapter 7</a> or 
+<a href=pdfs/unix io system/pdf>Thompson and Ritchies original Unix I/O paper</a> for better e
+xplanations than I can give. 
+
+In concrete terms, a Unix v6 process consists of some memory (stack + heap + data segments + text), and 
+some references to that memory (via a proc structure and a user structure). The proc structure contains
+essential information pertaining to a process. Although the operating system only concerns itself with
+one process at a time, the proc structures for each process are <b>never swapped out</b>. 
+
+```c
+/* Lines 0350 - 0376 in the source
+ * The proc structure.
+ * One allocated per active process.
+ * Contains all data needed about the process
+ * while the process may be swapped out
+ * Other per process data (user.h)
+ * is swapped with the process.
+ */
+struct proc
+{
+  char p_stat;
+  char p_flag;
+  char p_pri;    /* priority, negative is high */
+  char p_sig;    /* signal number sent to this process */
+  char p_uid;    /* user id, used to direct tty signals */
+  char p_time;   /* resident time for scheduling */
+  char p_cpu;    /* cpu usage for scheduling */
+  char p_nice;   /* nice for scheduling */
+  int  p_ttyp;   /* controlling tty */
+  int  p_pid;    /* unique process id */
+  int  p_ppid;   /* process id of parent */
+  int  p_addr    /* addr of swappable image */
+  int  p_size;   /* size of swappable image (*64 bytes) */
+  int  p_wchan;  /* event process is awaiting */
+  int  *p_textp; /* pointer to text structure */
+} proc[NPROC];
+```
+
+The user structure is much larger, and contains important (but non-essential) information pertaining to
+the process. As mentioned above, the operating system only concerns itself with one process at a time.
+In real terms, what this means is that the operating system only works with one user structure at a time.
+The "active" user structure is always found at virtual kernel address location 140000. This makes it easy
+for the operating system to find and manipulate the user structure, and prevents potential complications that
+could arise from more aggresive use of the MMU's addressing capabilities. 
+
+```c
+/* Lines 0400 - 0460 in the source
+ * The user structure.
+ * One allocated per process.
+ * Contains all per process data
+ * that doesn't need to be referenced
+ * while the process is swapped
+ * The user block is USIZE*64 bytes
+ * long; resides at virtual kernel
+ * loc 140000; contains the system
+ * stack per user; is cross referenced
+ * with theproc structure for the
+ * same process
+ */ 
+struct user
+{
+  int u_rsav[2];
+  int u_fsav[24];
+
+  char u_segflg;
+  char u_error;
+  char u_uid;
+  char u_gid;
+  char u_ruid;
+  char u_rgid;
+  int u_procp;
+  char *u_base;
+  char *u_count;
+  char *u_offset[2];
+  int *u_cdir;
+  char u_dbuf[DIRSIZ];
+  char *u_dirp;
+  struct {
+    int u_ino;
+    char u_name[DIRSIZ];
+  } u_dent;
+  int *u_pdir;
+  int u_uisa[16];
+  int u_uisd[16];
+  int u_ofile[NOFILE];
+
+  int u_arg[5];
+  int u_tsize;
+  int u_dsize;
+  int u_ssize;
+  int u_sep;
+  int u_qsav[2];
+  int u_ssav[2];
+  int u_signal[NSIG];
+  int u_utime;
+  int s_utime;
+  int u_cutime[2];
+  int u_cstime[2];
+  int *u_ar0;
+  int u_prof[4];
+  char u_intflg;
+
+} u;
+```
