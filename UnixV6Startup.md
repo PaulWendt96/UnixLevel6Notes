@@ -6,7 +6,7 @@ sequence is to initialize a couple of things:
   <li> The segmentation registers for user space and kernel space. These segmentation registers actually refer 
         to a pair of registers: the page address register (the PAR) and the page descriptor register (the PDR). 
 	The page address register is used to decode virtual addresses into physical ones (with the caveat that 
-	this translation only occurs if the memory management unit is on). The layout of the PAR is as follows:
+	this translation only occurs if the memory management unit is on). The layout of the PAR is as follows: </li>
         
         <img src=images/PAR.png alt=PAR Bitwise Layout>
 
@@ -27,4 +27,4 @@ sequence is to initialize a couple of things:
 	<img src=segmentation_regs.png alt=Segmentation Registers>
 
         Setting the segmentation registers up appropriately will help ensure a clean split between user space
-	and kernel space. This setup is also relevant once we start delving into process memory. </li>
+	and kernel space. This setup is also relevant once we start delving into process memory.
