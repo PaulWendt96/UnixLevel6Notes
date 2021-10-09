@@ -1,0 +1,10 @@
+How does Unixv6 start?
+
+The OS starts at line 0612 in the source. At this point in time, the machine (presumably a PDP 11/40 or something similar) has nothing initialized. The goal of the Unixv6 start
+sequence is to initialize a couple of things:
+
+  </li> The segmentation registers for user space and kernel space. These segmentation registers actually refer to a pair of registers: the page address register (the PAR),
+        and the page descriptor register (the PDR). The page address register is used to help decode virtual addresses into physical ones (with the caveat that this
+        translation only occurs if the memory management unit is on). The layout of the PAR is as follows:
+        
+        <img></img>
