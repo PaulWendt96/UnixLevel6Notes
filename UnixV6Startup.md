@@ -202,6 +202,7 @@ calls. The Unix stack grows down toward lower addresses, so the bottom of the st
 virtual address than the top of the stack.
 
 Before the call to newproc() on line 1627, the stack looks (roughly) like this:
+<pre>
 -----------
 |r2       | <- sp
 -----------
@@ -213,6 +214,7 @@ Before the call to newproc() on line 1627, the stack looks (roughly) like this:
 -----------
 |pc (=670)|
 -----------
+</pre>
 
 This should surprise you. After all, the only explicit stack operation that we have seen up to this point is the
 jsr <i> pc, _main </i> in line 0669. The JSR is responsible for pushing PC onto the stack, but how did r2 - r5
@@ -262,6 +264,7 @@ to make room on the stack. See <a href=https://pdos.csail.mit.edu/6.828/2005/lec
 v6 calling conventions </a> for more info.
 
 Getting back to stack visualization - once we reach newproc() (line 1827), the stack looks roughly like this
+<pre>
 ---------------------
 |r2                 | <- sp
 ---------------------
@@ -283,6 +286,7 @@ Getting back to stack visualization - once we reach newproc() (line 1827), the s
 ---------------------
 |pc (=670)          |
 ---------------------
+</pre>
 
 The first thing new proc does is find a unique process id (1840 - 1855). This pid serves to uniquely identify a process. 
 As this is the first time newproc() is being called, the unique process id will be 1.
@@ -383,6 +387,7 @@ Believe it or not, proc #1 actually returns to line 1627 in main. How? Go back t
 ```c savu(u.u_rsav);```
 
 At the time, the stack looked like this:
+<pre>
 ---------------------
 |r2                 | <- sp
 ---------------------
@@ -404,6 +409,7 @@ At the time, the stack looked like this:
 ---------------------
 |pc (=670)          |
 ---------------------
+</pre>
 
 The copyseg() on line 1915 copied the savu'd sp and r5 from proc #0's memory to proc #1's. So the retu on line 2228 restores the
 saved sp and r5. So, when swtch() returns, it returns to the saved PC, which points to line 1627 in the source. And, as indicated,
