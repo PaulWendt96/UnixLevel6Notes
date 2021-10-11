@@ -181,7 +181,7 @@ physical memory. Each time a a memory block is found, it is initalized to zero a
 via a call on mfree(). 
 
 After adding memory to the free list, main() allocates some space on the swap map so data can be swapped from main memory
-to disk. See <a href=Malloc and Free.md>commentary on malloc and free</a> if you forgot how this works.
+to disk. See <a href=Malloc_and_Free.md>commentary on malloc and free</a> if you forgot how this works.
 
 At this point, the OS is on line 1589, and is ready to start setting up the first process (proc[0]). The OS sets a few important
 fields, then links the user structure to point to the new process.
