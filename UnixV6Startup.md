@@ -147,6 +147,8 @@ The operating system maintains a reference to the user structure through the sev
 after startup </b>. All the other kernel segmentation registers are initialized in lines 0620 - 0630 and remain constant until
 the machine shuts down. 
 
+<h1> Enough talk - Show me the code </h1>
+
 After initializing segmentation registers (0620 - 0645) and setting some data areas to zero (0645 - 0665), the OS source shows
 a puzzling few lines of code:
 
@@ -162,7 +164,7 @@ The first line manipulates the processor status word to indicate the previous mo
 (this will be important later). The second line then uses an instruction called JSR, which deserves some description. JSR has the 
 following instruction format:
 
-<i> jsr reg dest </i>
+jsr <i>reg dest</i>
 
 <ol>
 <li> Push reg onto the stack </li>
@@ -179,8 +181,84 @@ physical memory. Each time a a memory block is found, it is initalized to zero a
 via a call on mfree(). 
 
 After adding memory to the free list, main() allocates some space on the swap map so data can be swapped from main memory
-to disk. 
+to disk. See <a href=Malloc and Free.md>commentary on malloc and free</a> if you forgot how this works.
 
+At this point, the OS is on line 1589, and is ready to start setting up the first process (proc[0]). The OS sets a few important
+fields, then links the user structure to point to the new process.
 
+```c
+proc[0].p_addr = *ka6;
+proc[0].p_size = USIZE;
+proc[0].p_stat = SRUN;
+proc[0].p_flag =| SLOAD|SSYS;
+u.u_procp = &proc[0];
+```
 
+The OS then proceeds to set the machine's clock and initialize the file system. We'll skip those steps for now.
+The OS finally reaches line 1627, and we've finally reached the point where we need to talk about the stack.
 
+Each process in Unix v6 has a stack region. The stack is used to store variables, and helps to facilitate function
+calls. The Unix stack grows down toward lower addresses, so the bottom of the stack actually has a higher
+virtual address than the top of the stack.
+
+Before the call to newproc() on line 1627, the stack looks (roughly) like this:
+-----------
+|r2       | <- sp
+-----------
+|r3       |
+-----------
+|r4       |
+-----------
+|r5 (=0)  | <- (=usize+64. - 2)
+-----------
+|pc (=670)|
+-----------
+
+This should surprise you. After all, the only explicit stack operation that we have seen up to this point is the
+jsr <i> pc, _main </i> in line 0669. The JSR is responsible for pushing PC onto the stack, but how did r2 - r5
+get there?
+
+The answer: calling conventions. Calling conventions define how the operating system enters and exits functions.
+In this case, the calling convention is
+
+```c
+.globl csv
+csv:
+  mov r5, r0
+  mov sp, r5
+  mov r4, -(sp)
+  mov r3, -(sp)
+  mov r2, -(sp)
+  jsr pc, (r0)
+
+.globl cret
+cret:
+  mov r5, r1
+  mov -(r1), r4
+  mov -(r1), r3
+  mov -(r1), r2
+  mov r5, sp
+  mov (sp)+, r5
+  rts pc
+```
+
+The C compiler references the calling convention by inserting the following line at the beginning of every C function
+body:
+
+```c
+C-function:
+  jsr r5, csv 
+```
+
+The key point to understand here is that we want to save registers r2 - r5 before entering a new function. If we 
+save the registers on the stack, we can restore them later once the new function exits without losing context.
+
+The r5 register in the PDP architecture is especially significant. r5 is often referred to as "the environment pointer".
+Its job is to save the location of the prior environment pointer. Since csv is called from C-function (and r5 is at
+the top of the stack as a result of the JSR in the C-function body), saving r5 is as simple as mov sp, r5. 
+
+As an additional note: that jsr pc, (r0) at the end of csv isn't trying to save anything in particular - it's just trying
+to make room on the stack. See <a href=https://pdos.csail.mit.edu/6.828/2005/lec/v6-calling.html> this digression on 
+v6 calling conventions </a> for more info.
+
+Getting back to stack visualization - once we reach newproc(), the stack looks like this
