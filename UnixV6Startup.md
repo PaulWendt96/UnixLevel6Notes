@@ -1,21 +1,23 @@
-<h1>How does Unixv6 start?</h1>
+<h1>Where does Unixv6 start?</h1>
 
 Unix v6 starts at line 0612 in the source. At this point in time, the machine (presumably a PDP 11/40 or something similar) has nothing initialized. The goal of the Unixv6 start
-sequence is to initialize a couple of things:
+sequence is to initialize a couple of things, which are listed below:
 
 <h1> Segmentation Registers </h1>
 
-The segmentation registers for user space and kernel space. These segmentation registers actually refer 
-to a pair of registers: the page address register (the PAR) and the page descriptor register (the PDR). 
+The PDP11 has segmentation registers for user space and kernel space. There are 8 sets of segmentation 
+registers for each of these spaces. The segmentation registers are really a pair of registers: 
+the page address register (the PAR) and the page descriptor register (the PDR). 
+
+The segmentation registers play a critical role in address translation, as you will see below. However,
+they also serve a dual purpose. Using segmentation registers, the PDP11 (which is a 16 bit machine) can
+actually address up to 2**18 bytes of information. How is this possible? It all has to do with the 
+virtual address to physical address translation algorithm.
+
 The page address register is used to decode virtual addresses into physical ones (with the caveat that 
 this translation only occurs if the memory management unit is on). The layout of the PAR is as follows:
         
 <img src=images/PAR.png alt=PAR Bitwise Layout>
-
-The virtual addressing algorithm combines the information in the PAR with the given virtual address
-to determine a physical address
-
-<img src=images/va_to_pa_algo.PNG alt=VA Algorithm>
 
 The PDR, on the other hand, specifies the length of the memory area (called a page - more on that later). 
 The PDR also specifies permissions that control memory access. The layout of the PDR is below:
@@ -28,13 +30,38 @@ is determined by a register called the Processor Status Word (PS) - but more on 
 
 <img src=images/segmentation_regs.PNG alt=Segmentation Registers>
 
-Setting the segmentation registers up appropriately will help ensure a clean split between user space
+The virtual addressing algorithm combines the information in the PAR with the given virtual address
+to determine a physical address. 
+
+<img src=images/va_to_pa_algo.PNG alt=VA Algorithm>
+
+Note the structure of the page adress register in the above image. Bits 0 - 11 are used to keep track
+of a Page Address Field, which is added to a 7-bit block number to determine a physical block number.
+The physical block number ends up being an 12-bit number (ranges between 0 and 4095). In other
+words, the addressing algorithm permits us to have up to 4096 physical blocks.
+
+How large is each physical block? Well, the displacement in block is determined by taking bits 0 - 5 
+of the virtual address (ranges between 0 and 63). So each block can hold up to 64 bytes, or 32 words.
+
+If each block can hold up to 64 bytes, and the PDP can reference up to 4096 blocks, then the full memory
+of the machine is 64 * 4096 = 262144 bytes. 
+
+You might have noticed that a slipped in a cryptic reference to something called a "word" in the above
+explanation. In PDP11-speak, a "word" refers to 16-bits of memory. You can think of it as two bytes which
+are treated as a unit for memory purposes. So, in terms of memory, the PDP can hold up to 
+262144/2 = 131072 words of memory.
+
+Just to put the memory capacity of the PDP11 into perspective -- the full Harry Potter series is 1,084,170
+bytes of ASCII characters. You'd need just over 4 PDPs to hold the whole series (or you'd need to 
+invest in some peripheral devices).
+
+Digression aside - setting the segmentation registers up appropriately ensures a clean split between user space
 and kernel space. This setup is also relevant once we start delving into process memory.
 
 <h1> Process #0 </h1>
 
-Process #0 (colloquially named "The First Process") is the first process that the computer sees on 
-startup. Being the first process, Process #0 requires special setup. Unix v6 starts performing this
+Process #0 (colloquially named "The First Process") is the first process that the operating system source 
+produces. Being the first process, Process #0 requires special setup. Unix v6 starts performing this
 setup on line 0646, although it takes a while for this setup to complete. 
 
 To understand Unix, it is important to understand the ingredients of a process. In abstract terms, a 
@@ -78,7 +105,7 @@ struct proc
 
 The user structure is much larger, and contains important (but non-essential) information pertaining to
 the process. As mentioned above, the operating system only concerns itself with one process at a time.
-In real terms, what this means is that the operating system only works with one user structure at a time.
+What this means is that the operating system only works with one user structure at a time.
 The "active" user structure is always found at virtual kernel address location 140000. This makes it easy
 for the operating system to find and manipulate the user structure, and prevents potential complications that
 could arise from more aggresive use of the MMU's addressing capabilities. 
@@ -142,15 +169,19 @@ struct user
 
 } u;
 ```
-The operating system maintains a reference to the user structure through the seventh kernel segmentation address registers
+The operating system maintains a reference to the user structure through the seventh kernel segmentation address register.
 (commonly referred to in the source as KISA6). <b> This is the only kernel segmentation address register that is manipulated
 after startup </b>. All the other kernel segmentation registers are initialized in lines 0620 - 0630 and remain constant until
 the machine shuts down. 
 
 <h1> Enough talk - Show me the code </h1>
 
-After initializing segmentation registers (0620 - 0645) and setting some data areas to zero (0645 - 0665), the OS source shows
-a puzzling few lines of code:
+Fair enough. 
+
+As noted above, lines 0620 - 0630 initalize the kernel and (initial) user segmentation registers.
+
+After setting some data areas to zero (0645 - 0665), the OS source runs
+a few puzzling lines of code:
 
 ```c
 mov $30000, PS
@@ -174,9 +205,9 @@ jsr <i>reg dest</i>
 
 In this case, the effect of JSR is that the current PC (which points to line 3) is pushed onto the stack, and the PC is set to 
 _main (1550 in the source). But, as the commentary in Lions points out, the call on main() never returns. So why does the
-code even have lines 3-5 in the first place? More on that later, but if you're curious now, check out ```bash man fork() ```.
+code even have lines 3-5 in the first place? More on that later, but if you're curious now, check out ```man fork```.
 
-main() starts by clearing higher areas of physical memory. The memory clearing leverages fuibyte() to determine the end of
+main() starts by clearing higher areas of physical memory. This clearing leverages fuibyte() to determine the end of
 physical memory. Each time a a memory block is found, it is initalized to zero and added to a list of free memory blocks
 via a call on mfree(). 
 
@@ -184,7 +215,7 @@ After adding memory to the free list, main() allocates some space on the swap ma
 to disk. See <a href=Malloc_and_Free.md>commentary on malloc and free</a> if you forgot how this works.
 
 At this point, the OS is on line 1589, and is ready to start setting up the first process (proc[0]). The OS sets a few important
-fields, then links the user structure to point to the new process.
+fields, then sets up the user structure to point to the new process.
 
 ```c
 proc[0].p_addr = *ka6;
@@ -194,11 +225,11 @@ proc[0].p_flag =| SLOAD|SSYS;
 u.u_procp = &proc[0];
 ```
 
-The OS then proceeds to set the machine's clock and initialize the file system. We'll skip those steps for now.
-The OS finally reaches line 1627, and we've finally reached the point where we need to talk about the stack.
+The OS proceeds to set the machine's clock and initialize the file system. We'll skip those steps for now.
+The OS then reaches line 1627, and we've finally reached the point where we need to talk about the stack.
 
 Each process in Unix v6 has a stack region. The stack is used to store variables, and helps to facilitate function
-calls. The Unix stack grows down toward lower addresses, so the bottom of the stack actually has a higher
+calls. The Unix stack grows down toward lower addresses, so the bottom of the stack actually has a lower
 virtual address than the top of the stack.
 
 Before the call to newproc() on line 1627, the stack looks (roughly) like this:
@@ -220,7 +251,7 @@ This should surprise you. After all, the only explicit stack operation that we h
 jsr <i> pc, _main </i> in line 0669. The JSR is responsible for pushing PC onto the stack, but how did r2 - r5
 get there?
 
-The answer: calling conventions. Calling conventions define how the operating system enters and exits functions.
+The answer: calling conventions. Calling conventions specify how the operating system enters and exits functions.
 In this case, the calling convention is
 
 ```c
@@ -259,7 +290,7 @@ The r5 register in the PDP architecture is especially significant. r5 is often r
 Its job is to save the location of the prior environment pointer. Since csv is called from C-function (and r5 is at
 the top of the stack as a result of the JSR in the C-function body), saving r5 is as simple as mov sp, r5. 
 
-As an additional note: that jsr pc, (r0) at the end of csv isn't trying to save anything in particular - it's just trying
+An additional note: jsr pc, (r0) at the end of csv isn't trying to save anything in particular - it's just trying
 to make room on the stack. See <a href=https://pdos.csail.mit.edu/6.828/2005/lec/v6-calling.html> this digression on 
 v6 calling conventions </a> for more info.
 
@@ -288,11 +319,11 @@ Getting back to stack visualization - once we reach newproc() (line 1827), the s
 ---------------------
 </pre>
 
-The first thing new proc does is find a unique process id (1840 - 1855). This pid serves to uniquely identify a process. 
+The first thing new proc does is find a unique process id (1840 - 1855). This pid will identify the process. 
 As this is the first time newproc() is being called, the unique process id will be 1.
 
 Newproc then sets up the process (1859 - 1870). This setup assumes the existence of a currently running process which can
-be found at u.u_procp. As this is the first process, all that setup can be ignored (although we will circle back
+be found at u.u_procp. As this is process #1, most of this setup can be ignored (although we will circle back
 to this when talking about subsequent processes).
 
 More setup occurs (1870 - 1888), and then we reach a critical line - ```c savu(u.u_rsav);```. This line calls a special
@@ -308,13 +339,13 @@ _savu:
   bic $340, PS
   jmp (r1)
 ```
+
 The first line sets savu() to run at the highest priority (so it won't get interrupted). The second and third lines pop
 the return address and argument into r1 and r0, respectively. 
 
 The fourth and fifth lines are the most important. These lines save the current sp and r5 registers to the location 
 specified by the argument to savu(). In this case, the registers end up getting stored in the u_rsav field of the
-currently loaded user struct for the process. The fifth line sets the priority back down to zero, and the sixth
-jumps back into newproc().
+user struct. The fifth line sets the priority back down to zero, and the sixth jumps back into newproc().
 
 Why are these seven lines important?
 
@@ -356,7 +387,7 @@ On the other hand, if malloc() worked, newproc() can just:
 
 Finally, newproc sets the user structure's u_procp field to point to the newly created process and returns a value of zero.
 
-At this point, the call to newproc() on line 1627 resolves with a value of 0, so the conditional is not taken. Sched() is
+In this case the call to newproc() on line 1627 resolves with a value of 0, so the conditional is not taken. Sched() is
 subsequently called on line 1637.
 
 Sched immediately goes to the loop label, where it looks for a process that wants to run ```c(rp->p_stat == SRUN)``` and is 
@@ -369,16 +400,16 @@ the process is sleeping (rp->p_stat = SSLEEP;), and the priority of the sleep (r
 for a context switch.
 
 Swtch() begins by calling ```c savu(u.u_rsav);``` to save the context of the current process (we saw this before in newproc() line
-1889, but the stack is significantly deeper this time, looking something like: main() -> sched() -> sleep() -> swtch()). Swtch()
+1889, but the call stack is significantly deeper this time, looking something like: main() -> sched() -> sleep() -> swtch()). Swtch()
 then performs a context switch to process zero - but as the OS is already "in" process 0, this has no effect! Swtch() then loops
 to find a process that wants to run (rp->p_stat == SRUN) and is loaded in core memory ((rp->p_flag & SLOAD) != 0). And process
-#1 satisfies both of these conditions! Finding process #1, swtch() sets the current priority to process #1's priority and,
+1 satisfies both of these conditions! Finding process #1, swtch() sets the current priority to process #1's priority and,
 at long last, performs a context switch to process #1 via retu(rp->paddr); Swtch() then calls sureg() to set up segmentation registers
 appropriate to process 1 (these were copied over as part of the call to copyseg() in newproc(), although I don't believe they changed
 as a result of this copy)
 
-There's a cryptic bit starting at line 2239 which deals with custom logic needed during swaps. Lions gives a good explanation as to why
-these lines are neccessary. I'll defer writing my own explanation for now.
+There's a cryptic bit starting at line 2239 which deals with logic needed during swaps. Lions gives a good explanation as to why
+these lines are neccessary. I'll defer my explanation for another article.
 
 Finally, proc #1 returns from swtch() with a value of 1. <b>But to where?</b>
 
@@ -447,13 +478,18 @@ And that's it.
 
 <h1> More to the story </h1>
 
-Just joking. Obviously the UNIX OS does a lot more than exist. The Unix OS is responsible for a lot, lot more (otherwise it wouldn't have won a 
-Turing award). Some of the other responsibilities the kernel has
+Just joking. Obviously the UNIX OS does more than this. The Unix OS is responsible for a lot, lot more (otherwise it wouldn't have won a 
+Turing award). Some of the other responsibilities the kernel has:
+
+<li> Managing the filesystem </li>
+<li> Handling traps and interrupts in a sane way </li>
+<li> Interaction with peripheral devices </li>
+<li> Responding to system calls </li>
 
 <h1> Outstanding Remarks </h1>
 
 You've probably noticed that I didn't give full explanations for all of the code in this section. In some cases (like malloc and free), that's 
-because I've already written commentary elsewhere. In others (estabur and sureg), that's because I don't fully understand the code myself. 
+because I've already written commentary elsewhere. In others (estabur and sureg), that's because I don't fully read or understand the code myself. 
 If you're curious, <a href=pdfs/unix_v6.pdf>read the source</a>! 
 
 <h1> Further Reading </h1>
