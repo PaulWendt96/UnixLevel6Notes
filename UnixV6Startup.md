@@ -496,7 +496,7 @@ If you're curious, <a href=pdfs/unix_v6.pdf>read the source</a>!
 
 Nothing's better than <a href=pdfs/unix_v6.pdf>the source</a>
 
-In my opinion<a href=pdfs/lions.pdf>Lion's should be your first source for detailed Unix v6 questions</a>
+In my opinion <a href=pdfs/lions.pdf>Lion's should be your first source for detailed Unix v6 questions</a>
 
 <a href=https://gunkies.org>The Gunkies forum</a> has a bunch of good articles relating to the architecture of the PDP11. That info will be important if you wish to do an in-depth study of v6.
 
