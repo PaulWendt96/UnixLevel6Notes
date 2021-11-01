@@ -2,39 +2,39 @@
 
 A pipe is an essential tool in any Unix programmer's toolkit.
 Pipes are used to "daisy-chain" programs together. They allow
-the output one program to serve as the input to another?
+the output of one program to serve as the input to another.
 
 Pipes were invented by Ken Thompson at the insistence of 
 Doug McIlroy. McIlroy had long proposed the idea of a 
-mechanism by which programs could be chained together like
+mechanism by which programs could be nozzled together like
 a garden hose. <a href="https://thenewstack.io/pipe-how-the-system-call-that-ties-unix-together-came-about"> Read more about the history of pipes here</a>
 
 The history of Unix is extremely interesting, but that's
 not the purpose of this note. Instead, this note will take
-you through how Pipes were actually implemented by Ken 
+you through how pipes were actually implemented by Ken 
 Thompson in Unix v6. 
 
 <h1> No really, what is a Pipe? </h1>
 
-A Pipe is a unique kind of Unix file. Pipes are implemented
+A pipe is a unique kind of Unix file. Pipes are implemented
 as FIFO queues, in which the first characters written into 
-the Pipe are the first read out. This should make intuitive
+the pipe are the first read out. This should make intuitive
 sense - if we have the command
 
 ```ls | grep *.py```	
 
-grep expects the Pipe's output be ordered exactly as if 
+grep expects the pipe's output be ordered exactly as if 
 the output of ls had been written to a file, and that file 
 had been passed as input to grep. Using a FIFO queue
 ensures that characters are read and written in the right
-order, and makes managing Pipes significantly easier from a 
-conceptual perspective.
+order. This has the additional advantage of making pipe management 
+significantly easier from a conceptual perspective, as you'll see below.
 
-To create a pipe, Unix v6 uses the pipe() system call. The pipe()
-system call allocates an inode and creates two file structs - one
+To create a pipe, Unix v6 uses the pipe() system call. pipe()
+allocates an inode and creates two file structs - one
 for reading and one for writing. Various flags are set to tie
 everything together. File descriptors are returned in r0 and r1
-through the use of the user struct's u.u_ar0 array.
+through the user struct's u.u_ar0 array.
 
 ```c
 pipe()
@@ -78,15 +78,15 @@ the following macro
 That's right -- a pipe can have at most 4096 characters. This actually
 serves as a key simplifying assumption. In Unix v6, files beyond 4096 
 characters are considered large files. From a file system perspective,
-this means that, instead of writing the file contents directly to 
+this means that instead of writing the file contents directly to 
 allocated blocks of memory, one or more of the blocks of memory actually
-serves as an indirect block, holding up to 256 16-bit pointers to other
+serves as indirect blocks, holding up to 256 16-bit pointers to other
 blocks that contain file contents. This scheme can get even trickier for
-huge file. If you're curious, <a href="https://youtube.com/watch?v=vUyKpzg6vYk">Chris Gregg's CS 110 lecture</a> on Unix v6
+huge files. If you're curious, <a href="https://youtube.com/watch?v=vUyKpzg6vYk">Chris Gregg's CS 110 lecture</a> on Unix v6
 gives a really good overview of the Unix v6 file system.
 
 The important takeaway here is that large files are tricky. Unix v6
-masterfully side steps this trickiness with a single macro definition.
+masterfully side steps this trickiness with the PIPSIZ macro definition.
 
 Writing to a pipe is surprisingly straightforward.
 
@@ -148,14 +148,13 @@ The basic algorithm is this:
   2. If there's nothing to write, release the pipe and return
   3. If there's no longer a reader, release the pipe and signal an error
   4. If the pipe is full, release the Pipe, waiting for it to empty a little
-  5. Write as much as possible
-     i. Note that, in the best possible situation, we can write 4096 characters.
-        Lots of commands produce more than 4096 characters to write. As a result,
-        the "goto loop" statement after the write is likely to be hit often.
+  5. Write as much as possible Note that, in the best possible situation, we can write 4096 characters.  
+     Lots of commands produce more than 4096 characters to write. 
+     As a result, the "goto loop" statement after the write is likely to be hit often.
   6. Release the pipe, and potentially sleep if there's a reader ready
   7. Goto step 1
 
-That's all there is to it! Reading from a pipe is similarly simple.
+That's all there is to it! Reading from a pipe is also simple.
 
 ```c
 readp()
@@ -201,10 +200,10 @@ loop:
 
 The basic algorithm is this:
   1. Lock the pipe
-  2. If the reader has caught up with the writer, reset both to 0
-     i. If the writer is sleeping, wake it up
-     ii. If there's no longer a writer, release the pipe and return without satisfying the read
-     iii. Goto step 1
+  2. If the reader has caught up with the writer, reset both to 0. 
+     If the writer is sleeping, wake it up. 
+     If there's no longer a writer, release the pipe and return without satisfying the read.
+     Otherwise, goto step 1.
   3. Read from the pipe and retun
 
 The plock(ip) and prele(ip) calls are just for locking and unlocking the underlying
@@ -238,6 +237,11 @@ int *ip;
   }
 }
 ```
+
+Ken Thompson noted that it took about an hour to implement pipes in the Unix system.
+It's incredible that such a fundamental piece of the Unix toolkit was implemented 
+so quickly and effectively.
+
 
 <h1> Is that it? </h1>
 Yup. However, if you're interested, you might want to read about FIFOs, or named pipes. 
