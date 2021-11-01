@@ -36,6 +36,7 @@ for reading and one for writing. Various flags are set to tie
 everything together. File descriptors are returned in r0 and r1
 through the use of the user struct's u.u_ar0 array.
 
+```c
 pipe()
 {
   register *ip, *rf, *wf;
@@ -67,6 +68,7 @@ pipe()
   ip->i_flag = IACC | IUPD;
   ip->i_mode = IALLOC;
 }
+```
 
 One important note -- if you read the Unix v6 code carefully, you'll see 
 the following macro
@@ -88,6 +90,7 @@ masterfully side steps this trickiness with a single macro definition.
 
 Writing to a pipe is surprisingly straightforward.
 
+```c
 writep(fp)
 {
   register *rp, *ip, c;
@@ -138,6 +141,7 @@ loop:
   }
   goto loop;
 }
+```
 
 The basic algorithm is this:
   1. Lock the pipe
@@ -153,6 +157,7 @@ The basic algorithm is this:
 
 That's all there is to it! Reading from a pipe is similarly simple.
 
+```c
 readp()
 int *fp;
 {
@@ -192,6 +197,7 @@ loop:
   rp->f_offset[1] = u.u_offset[1];
   prele(ip);
 }
+```
 
 The basic algorithm is this:
   1. Lock the pipe
@@ -205,6 +211,7 @@ The plock(ip) and prele(ip) calls are just for locking and unlocking the underly
 pipe inodes. They also wake up appropriate processes when needed. Both have straightforward
 implementations:
 
+```c
 plock(ip)
 int *ip;
 {
@@ -230,6 +237,7 @@ int *ip;
     wakeup(rp);
   }
 }
+```
 
 <h1> Is that it? </h1>
 Yup. However, if you're interested, you might want to read about FIFOs, or named pipes. 
